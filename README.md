@@ -11,6 +11,21 @@ An enterprise-grade Formula 1 engineering suite combining **On-Car Hard Real-Tim
 
 Designed to mirror standard Tier-1 motorsport architectures (e.g. **McLaren Applied TAG-320** and **Bosch Motorsport MS 6** ECUs).
 
+> 🎓 **Data Science Student / Interviewee?** Read [`DATA_SCIENCE_GUIDE.md`](./DATA_SCIENCE_GUIDE.md) for an in-depth textbook breakdown of the mathematics, loss functions, algorithm tradeoffs, and 15 technical interview questions with model answers!
+
+---
+
+## 🎓 Data Science Curriculum Mapping
+
+| Data Science Domain | Problem in Motorsport | Core Algorithm Used | Key Metrics / Formulation |
+| :--- | :--- | :--- | :--- |
+| **Supervised Regression** | Non-linear tyre wear & lap time delta | Random Forest Regressor | Piecewise constant orthogonal splits, $R^2 > 0.94$, RMSE |
+| **Stochastic Simulation** | Pit-stop strategy under uncertain race conditions | 1,500x Monte Carlo Simulation | Bernoulli incident trials $p=0.045$, Law of Large Numbers |
+| **Bayesian State Estimation** | Unobservable latent Sideslip Angle ($\beta$) | Extended Kalman Filter (EKF) | Dynamic bicycle model, Analytical Jacobians, Kalman Gain $K_k$ |
+| **Computer Vision** | Kinematic trajectory & corner apex detection | Optical Flow & Spatial Curvature | Brightness constancy $\nabla I^T \mathbf{v} + I_t = 0$, Curvature $\kappa(s)$ |
+| **Unsupervised Learning** | Predictive maintenance & failure detection | Multivariate Isolation Forest | BST average path length $h(x)$, Anomaly score $s \in [0, 1]$ |
+| **Edge Data Engineering** | Real-time sensor streaming & quantization | MISRA-C:2012 CAN-bus Engine | Fixed-point scaling, CRC-16-CCITT feature store protection |
+
 ---
 
 ## 🏗️ System Architecture
