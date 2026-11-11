@@ -137,7 +137,7 @@ f1_pitwall_suite/
 ### 1. Launch the Streamlit Web Workstation
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/f1-pitwall-strategy-suite.git
+git clone https://github.com/navneetprasad/f1-pitwall-strategy-suite.git
 cd f1-pitwall-strategy-suite
 
 # Install dependencies
