@@ -107,23 +107,75 @@ CUSTOM_CSS = f"""
         font-size: 0.85rem;
         letter-spacing: 1px;
     }}
+    .about-card {{
+        background-color: #11141B;
+        border-left: 4px solid #38BDF8;
+        padding: 14px 18px;
+        border-radius: 6px;
+        margin-top: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ==============================================================================
-# DRIVER & TEAM REGISTRY
+# ==============================================================================
+# DRIVER & TEAM REGISTRY (2025/2026 OFFICIAL GRID)
 # ==============================================================================
 DRIVERS = {
     "VER": {"name": "Max Verstappen", "team": "Red Bull Racing", "color": "#3671C6", "num": 1},
-    "HAM": {"name": "Lewis Hamilton", "team": "Ferrari", "color": "#E80020", "num": 44},
     "NOR": {"name": "Lando Norris", "team": "McLaren", "color": "#FF8000", "num": 4},
     "LEC": {"name": "Charles Leclerc", "team": "Ferrari", "color": "#E80020", "num": 16},
-    "PIA": {"name": "Oscar Piastri", "team": "McLaren", "color": "#FF8000", "num": 81},
+    "HAM": {"name": "Lewis Hamilton", "team": "Ferrari", "color": "#FF3333", "num": 44},
+    "PIA": {"name": "Oscar Piastri", "team": "McLaren", "color": "#FF9933", "num": 81},
     "RUS": {"name": "George Russell", "team": "Mercedes", "color": "#27F4D2", "num": 63},
+    "ANT": {"name": "Kimi Antonelli", "team": "Mercedes", "color": "#00D2BE", "num": 12},
     "SAI": {"name": "Carlos Sainz", "team": "Williams", "color": "#64C4FF", "num": 55},
-    "ALO": {"name": "Fernando Alonso", "team": "Aston Martin", "color": "#229971", "num": 14}
+    "ALB": {"name": "Alexander Albon", "team": "Williams", "color": "#00A0DE", "num": 23},
+    "ALO": {"name": "Fernando Alonso", "team": "Aston Martin", "color": "#229971", "num": 14},
+    "STR": {"name": "Lance Stroll", "team": "Aston Martin", "color": "#359A76", "num": 18},
+    "GAS": {"name": "Pierre Gasly", "team": "Alpine", "color": "#FF87BC", "num": 10},
+    "DOO": {"name": "Jack Doohan", "team": "Alpine", "color": "#0093CC", "num": 7},
+    "TSU": {"name": "Yuki Tsunoda", "team": "Racing Bulls", "color": "#6692FF", "num": 22},
+    "LAW": {"name": "Liam Lawson", "team": "Racing Bulls", "color": "#4E7CFF", "num": 30},
+    "HUL": {"name": "Nico Hülkenberg", "team": "Kick Sauber", "color": "#52E252", "num": 27},
+    "BOR": {"name": "Gabriel Bortoleto", "team": "Kick Sauber", "color": "#00E700", "num": 5},
+    "OCO": {"name": "Esteban Ocon", "team": "Haas", "color": "#B6BABD", "num": 31},
+    "BEA": {"name": "Oliver Bearman", "team": "Haas", "color": "#E6002B", "num": 87}
 }
+
+# ==============================================================================
+# FAST CACHED SIMULATION & TELEMETRY ENGINE (INSTANT ZERO-LAG SLIDERS)
+# ==============================================================================
+@st.cache_data
+def get_cached_telemetry(circuit_key: str, driver1: str, driver2: str):
+    return generate_real_world_telemetry(circuit_key, driver1, driver2, n_samples=1200)
+
+@st.cache_data
+def get_cached_monte_carlo(base_pace: float, total_laps: int, pit_loss_sec: float = 22.5):
+    engine = RaceStrategyMLEngine(base_lap_pace=base_pace, total_laps=total_laps, pit_loss_sec=pit_loss_sec)
+    return engine.run_monte_carlo(n_simulations=1500)
+
+@st.cache_data
+def get_cached_ekf(circuit_key: str, driver1: str, driver2: str):
+    t1, _, _, _, _, _ = get_cached_telemetry(circuit_key, driver1, driver2)
+    return run_ekf_simulation(t1)
+
+@st.cache_data
+def get_cached_cv(circuit_key: str, driver1: str, driver2: str):
+    t1, _, _, _, _, _ = get_cached_telemetry(circuit_key, driver1, driver2)
+    cv_engine = SpatialMotionCVEngine()
+    cv_df = cv_engine.analyze_motion_field(t1)
+    corners_df = cv_engine.get_corner_breakdown(cv_df)
+    return cv_df, corners_df
+
+@st.cache_data
+def get_cached_anomaly_data():
+    detector = ComponentAnomalyDetector(contamination=0.035)
+    telemetry_raw = detector.generate_component_telemetry(n_laps=50, inject_fault=True)
+    telemetry_scored = detector.fit_predict(telemetry_raw)
+    return telemetry_scored
 
 # ==============================================================================
 # SIDEBAR CONTROLS
@@ -158,9 +210,9 @@ with st.sidebar:
     st.markdown("---")
     st.caption("F1 Race Engineering & Telemetry Architecture | Python 3.15")
 
-# Generate distance-aligned ground truth physics telemetry
-tel1, tel2, laps_summary, track_len, meta, landmarks = generate_real_world_telemetry(
-    selected_circuit_key, d1_code, d2_code, n_samples=1200
+# Generate distance-aligned ground truth physics telemetry (cached for instant response)
+tel1, tel2, laps_summary, track_len, meta, landmarks = get_cached_telemetry(
+    selected_circuit_key, d1_code, d2_code
 )
 
 # Header Title & Circuit Badge
@@ -218,30 +270,58 @@ with tabs[0]:
         st.markdown(f"<p style='font-size:0.85rem; color:#64748B;'>Track: {circuit_meta.get('name')}<br>Active Drivers: {d1_code} vs {d2_code}<br>Monte Carlo Sim: 1500 Runs</p>", unsafe_allow_html=True)
         
     st.write("")
-    left_p, right_p = st.columns([5, 4])
+    left_p, right_p = st.columns([5, 5])
     
     with left_p:
-        st.markdown("#### **Spatial Positioning Telemetry Canvas**")
-        progression = st.slider("Simulate Live Driver Progression Tracking", 0.0, 1.0, 0.35, step=0.01)
+        st.markdown(f"#### **🏎️ Live Track Position: {d1_code} vs {d2_code}**")
+        progression = st.slider("Simulate Live Driver Progression Tracking", 0.0, 1.0, 0.35, step=0.005, format="%.1f%%")
         
-        # Render clean vector track layout
+        # Calculate indices for both drivers
+        idx1 = int(len(tel1) * progression) % len(tel1)
+        # Calculate time delta at current track position
+        delta_sec = float(tel2["Time"].iloc[idx1] - tel1["Time"].iloc[idx1])
+        # Position Car 2 with realistic spatial spacing based on time delta
+        offset_samples = int(np.clip(delta_sec * 30.0, -80, 80))
+        if abs(offset_samples) < 12:
+            offset_samples = 15  # ensure visual separation if identical
+        idx2 = (idx1 - offset_samples) % len(tel2)
+        
+        c1_color = DRIVERS[d1_code]["color"]
+        c2_color = DRIVERS[d2_code]["color"]
+        # Ensure distinct colors if both selected from the same team
+        if c1_color.lower() == c2_color.lower():
+            c2_color = "#FFD700"  # Distinct gold accent for Car 2
+            
         fig_track = go.Figure()
+        # Track Boundary Line
         fig_track.add_trace(go.Scatter(
             x=tel1["X"], y=tel1["Y"],
             mode="lines",
             line=dict(color="#262D38", width=5),
-            hoverinfo="skip"
+            hoverinfo="skip",
+            showlegend=False
         ))
         
-        # Car 1 Marker
-        idx1 = int(len(tel1) * progression) % len(tel1)
+        # Car 1 Marker (Circle)
         fig_track.add_trace(go.Scatter(
             x=[tel1["X"].iloc[idx1]], y=[tel1["Y"].iloc[idx1]],
             mode="markers+text",
-            marker=dict(color=DRIVERS[d1_code]["color"], size=15, line=dict(color="#FFFFFF", width=2)),
-            text=[f"<b>{d1_code}</b><br>{tel1['Speed'].iloc[idx1]:.0f} km/h"],
+            marker=dict(color=c1_color, size=16, line=dict(color="#FFFFFF", width=2)),
+            text=[f"<b>{d1_code}</b> (#{DRIVERS[d1_code]['num']})<br>{tel1['Speed'].iloc[idx1]:.0f} km/h"],
             textposition="top center",
-            textfont=dict(color="#FFFFFF", size=11)
+            textfont=dict(color="#FFFFFF", size=11),
+            name=f"{d1_code} ({DRIVERS[d1_code]['name']})"
+        ))
+        
+        # Car 2 Marker (Square)
+        fig_track.add_trace(go.Scatter(
+            x=[tel2["X"].iloc[idx2]], y=[tel2["Y"].iloc[idx2]],
+            mode="markers+text",
+            marker=dict(color=c2_color, size=15, symbol="square", line=dict(color="#FFFFFF", width=2)),
+            text=[f"<b>{d2_code}</b> (#{DRIVERS[d2_code]['num']})<br>{tel2['Speed'].iloc[idx2]:.0f} km/h"],
+            textposition="bottom center",
+            textfont=dict(color="#FFFFFF", size=11),
+            name=f"{d2_code} ({DRIVERS[d2_code]['name']})"
         ))
         
         fig_track.update_layout(
@@ -249,33 +329,96 @@ with tabs[0]:
             margin=dict(l=10, r=10, t=10, b=10),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, scaleanchor="x", scaleratio=1),
-            showlegend=False, height=440
+            legend=dict(orientation="h", y=1.05, font=dict(color="#E2E8F0")),
+            height=400
         )
         st.plotly_chart(fig_track, width="stretch", config={"displayModeBar": False})
         
-    with right_p:
-        st.markdown("#### **Stochastic Model Interrogator & Analytics**")
-        stint_matrix = pd.DataFrame({
-            "Compound": ["Soft (S)", "Medium (M)", "Hard (H)"],
-            "Predicted Degradation (%)": [78.4, 42.1, 18.9],
-            "MC Success Rate": [0.124, 0.685, 0.191],
-            "Est. Pit Stop Penalty": ["22.4s", "22.1s", "22.1s"]
-        }).set_index("Compound")
-        
-        styled_matrix = stint_matrix.style.background_gradient(
-            cmap="Reds", subset=["Predicted Degradation (%)"]
-        ).background_gradient(
-            cmap="Greens", subset=["MC Success Rate"]
-        ).format("{:.1%}", subset=["MC Success Rate"]).format("{:.1f}%", subset=["Predicted Degradation (%)"])
-        
-        st.dataframe(styled_matrix, width="stretch")
-        
-        st.markdown("#### **Bayesian Filter Signal Extraction Profile**")
-        chart_data = pd.DataFrame(
-            np.random.randn(20, 2) * [0.1, 0.5] + [0.6, 0.6],
-            columns=["Filtered Degradation Curve", "Raw Volatile Telemetry Signal"]
+        # Live Driver Telemetry Status Bar
+        st.markdown(
+            f"""
+            <div style="background-color: #12161C; padding: 10px 14px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #1E293B; margin-top: 5px;">
+                <div><span style="color: {c1_color}; font-weight: bold;">● {d1_code} #{DRIVERS[d1_code]['num']}</span>: {tel1['Speed'].iloc[idx1]:.0f} km/h | Gear {tel1['nGear'].iloc[idx1]} | Thr {tel1['Throttle'].iloc[idx1]:.0f}%</div>
+                <div style="color: #F8FAFC; font-weight: bold; font-family: monospace; font-size: 1.05rem;">GAP: {abs(delta_sec):.3f}s</div>
+                <div><span style="color: {c2_color}; font-weight: bold;">■ {d2_code} #{DRIVERS[d2_code]['num']}</span>: {tel2['Speed'].iloc[idx2]:.0f} km/h | Gear {tel2['nGear'].iloc[idx2]} | Thr {tel2['Throttle'].iloc[idx2]:.0f}%</div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
-        st.line_chart(chart_data, height=200)
+        
+    with right_p:
+        st.markdown(f"#### **📊 Head-to-Head Telemetry Comparison**")
+        curr_dist = float(tel1["Distance"].iloc[idx1])
+        
+        # Live Speed Comparison Plot
+        fig_speed = go.Figure()
+        fig_speed.add_trace(go.Scatter(
+            x=tel1["Distance"], y=tel1["Speed"],
+            mode="lines", line=dict(color=c1_color, width=2.2),
+            name=f"{d1_code} Speed"
+        ))
+        fig_speed.add_trace(go.Scatter(
+            x=tel2["Distance"], y=tel2["Speed"],
+            mode="lines", line=dict(color=c2_color, width=2.0, dash="dot"),
+            name=f"{d2_code} Speed"
+        ))
+        fig_speed.add_vline(x=curr_dist, line_width=2, line_dash="dash", line_color="#F8FAFC", annotation_text="CAR POS", annotation_position="top left")
+        
+        fig_speed.update_layout(
+            paper_bgcolor=HEX_BG_PANEL, plot_bgcolor="#0c0e13",
+            margin=dict(l=40, r=20, t=10, b=30), height=230,
+            xaxis=dict(title="Track Distance (m)", showgrid=True, gridcolor="#1f2430"),
+            yaxis=dict(title="Speed (km/h)", showgrid=True, gridcolor="#1f2430"),
+            legend=dict(orientation="h", y=1.15, font=dict(color="#E2E8F0"))
+        )
+        st.plotly_chart(fig_speed, width="stretch", config={"displayModeBar": False})
+        
+        # Throttle & Brake Comparison Plot
+        fig_pedals = go.Figure()
+        fig_pedals.add_trace(go.Scatter(
+            x=tel1["Distance"], y=tel1["Throttle"],
+            mode="lines", line=dict(color=c1_color, width=1.8),
+            name=f"{d1_code} Throttle"
+        ))
+        fig_pedals.add_trace(go.Scatter(
+            x=tel2["Distance"], y=tel2["Throttle"],
+            mode="lines", line=dict(color=c2_color, width=1.5, dash="dot"),
+            name=f"{d2_code} Throttle"
+        ))
+        fig_pedals.add_trace(go.Scatter(
+            x=tel1["Distance"], y=tel1["Brake"],
+            mode="lines", line=dict(color="#EF4444", width=1.8),
+            name=f"{d1_code} Brake"
+        ))
+        fig_pedals.add_vline(x=curr_dist, line_width=2, line_dash="dash", line_color="#F8FAFC")
+        
+        fig_pedals.update_layout(
+            paper_bgcolor=HEX_BG_PANEL, plot_bgcolor="#0c0e13",
+            margin=dict(l=40, r=20, t=10, b=30), height=190,
+            xaxis=dict(title="Track Distance (m)", showgrid=True, gridcolor="#1f2430"),
+            yaxis=dict(title="Pedal Input (%)", showgrid=True, gridcolor="#1f2430", range=[-5, 105]),
+            legend=dict(orientation="h", y=1.15, font=dict(color="#E2E8F0"))
+        )
+        st.plotly_chart(fig_pedals, width="stretch", config={"displayModeBar": False})
+
+    # Plain English About Card for Tab 1
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Live GPS track coordinates, vehicle speed, gear, throttle, and braking inputs for both <b>Driver 1</b> and <b>Driver 2</b> racing around the circuit.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b> The 2D track map displays where both cars are on track. Drag the slider above to watch both cars move in real time, compare their speeds through every corner, and see the live interval gap between them. The telemetry charts on the right show exactly who is braking later into turns and who gets on the throttle earlier.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> Race engineers use this side-by-side comparison to advise drivers over team radio on where they are gaining or losing tenths of a second against their rival, and to decide the optimal moment to make a pit stop.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ==============================================================================
 # TAB 2: 🧠 TYRE STRATEGY & PREDICTIONS
@@ -319,7 +462,7 @@ with tabs[1]:
         
     with col_s2:
         st.markdown("#### 🎲 1,500-Iteration Monte Carlo Strategy Outcomes")
-        mc_results = strategy_engine.run_monte_carlo(n_simulations=1500)
+        mc_results = get_cached_monte_carlo(float(tel1["Time"].iloc[-1]), circuit_meta.get("total_laps", 57), 22.5)
         win_counts = mc_results["WinningStrategy"].value_counts(normalize=True)
         
         fig_mc = go.Figure(go.Bar(
@@ -336,6 +479,27 @@ with tabs[1]:
         )
         st.plotly_chart(fig_mc, width="stretch")
 
+    # Plain English About Card for Tab 2
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Tyre wear degradation, grip levels, and lap time loss across Soft (red), Medium (yellow), and Hard (white) tyre compounds over 40 laps.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Tyre Wear Curves:</b> Soft tyres start fastest but degrade rapidly. Hard tyres are slower initially but stay consistent for dozens of laps. When tyres hit the "cliff", lap times increase steeply.
+                <br>• <b>Monte Carlo Simulation:</b> Simulates 1,500 full race scenarios to calculate whether a <b>1-Stop strategy</b> (Medium → Hard) or a <b>2-Stop strategy</b> (Soft → Medium → Medium) gives the highest probability of winning under random Safety Car periods.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> Formula 1 races are frequently won or lost on tyre strategy. Pitting on the right lap allows a driver to perform an "undercut" and leapfrog rivals without needing to overtake on track.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ==============================================================================
 # TAB 3: 🏎️ VEHICLE HANDLING & G-FORCE
 # ==============================================================================
@@ -348,7 +512,7 @@ with tabs[2]:
         """
     )
     
-    ekf_data = run_ekf_simulation(tel1)
+    ekf_data = get_cached_ekf(selected_circuit_key, d1_code, d2_code)
     
     c_ekf1, c_ekf2 = st.columns(2)
     with c_ekf1:
@@ -362,7 +526,7 @@ with tabs[2]:
         fig_beta.add_trace(go.Scatter(
             x=ekf_data["Distance"], y=ekf_data["Sideslip_Est_deg"],
             mode="lines", line=dict(color=HEX_SPEED, width=2.0),
-            name="EKF Sensor Fusion β"
+            name="Sensor Fusion β"
         ))
         fig_beta.update_layout(
             paper_bgcolor=HEX_BG_PANEL, plot_bgcolor="#0c0e13",
@@ -391,6 +555,27 @@ with tabs[2]:
         )
         st.plotly_chart(fig_gg, width="stretch")
 
+    # Plain English About Card for Tab 3
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Cornering stability (sideslip angle) and acceleration forces (G-forces) acting on the car during high-speed cornering and braking.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Sideslip Angle (β):</b> Measures the angle between where the car is pointed and where it is actually sliding. Lower angles mean sharp, responsive turn-in. Larger angles indicate the rear sliding out (oversteer) or front pushing wide (understeer).
+                <br>• <b>Dynamic G-G Diagram:</b> A 2D friction circle showing the combined limits of tyre grip. The horizontal axis shows cornering Gs (up to 5G), while the vertical axis shows heavy braking deceleration (up to -5.5G).
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> Engineers study this data to optimize the car's wing angles, suspension stiffness, and mechanical balance so the driver can attack corners with confidence.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ==============================================================================
 # TAB 4: 📹 CORNER SPEEDS & BRAKING
 # ==============================================================================
@@ -403,9 +588,7 @@ with tabs[3]:
         """
     )
     
-    cv_engine = SpatialMotionCVEngine()
-    cv_df = cv_engine.analyze_motion_field(tel1)
-    corners_df = cv_engine.get_corner_breakdown(cv_df)
+    cv_df, corners_df = get_cached_cv(selected_circuit_key, d1_code, d2_code)
     
     col_cv1, col_cv2 = st.columns([3, 2])
     with col_cv1:
@@ -437,6 +620,27 @@ with tabs[3]:
         st.markdown("#### 📐 Extracted Apex Corner Features")
         st.dataframe(corners_df, width="stretch", hide_index=True)
 
+    # Plain English About Card for Tab 4
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> GPS speeds, corner curvature, and braking deceleration calculated continuously around the circuit.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Corner Apex Speeds:</b> The diamond markers highlight the "apex" (the center clipping point of every turn) and record the minimum speed carried through the turn.
+                <br>• <b>Braking Points:</b> Highlights heavy braking transition zones where cars drop from 300+ km/h down to turn-in speeds.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> Drivers and engineers analyze this to see who is braking 10 meters deeper into Turn 1 or carrying 5 km/h higher minimum speed through crucial corners like Copse or Eau Rouge.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ==============================================================================
 # TAB 5: ⚠️ CAR HEALTH & WARNINGS
 # ==============================================================================
@@ -449,9 +653,7 @@ with tabs[4]:
         """
     )
     
-    detector = ComponentAnomalyDetector(contamination=0.035)
-    telemetry_raw = detector.generate_component_telemetry(n_laps=50, inject_fault=True)
-    telemetry_scored = detector.fit_predict(telemetry_raw)
+    telemetry_scored = get_cached_anomaly_data()
     
     col_an1, col_an2 = st.columns([3, 2])
     with col_an1:
@@ -494,6 +696,27 @@ with tabs[4]:
             """,
             unsafe_allow_html=True
         )
+
+    # Plain English About Card for Tab 5
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Live diagnostic channels monitoring gearbox bearing vibration, engine oil temperature, and hydraulic system pressure.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Health Index (0–100%):</b> The overall condition of the powertrain. If components degrade, the score drops.
+                <br>• <b>Anomaly Risk Score:</b> Spikes when unusual sensor vibration or pressure drops are detected. The dotted and dashed threshold lines trigger warnings 4 laps before catastrophic mechanical failure.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> In F1, an engine or gearbox failure means instant DNF (Did Not Finish). Early anomaly detection allows engineers to instruct the driver to short-shift or adjust engine settings to finish the race safely.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ==============================================================================
 # TAB 6: ⚡ EMBEDDED C ENGINE & ECU TELEMETRY (FIRMWARE CORE)
@@ -611,6 +834,27 @@ with tabs[5]:
     except Exception as e:
         st.error(f"Error reading {c_file_choice}: {e}")
 
+    # Plain English About Card for Tab 6
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Raw digital telemetry frames transmitted from the car's on-board Electronic Control Unit (ECU) across the CAN-bus communication network.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Live Bitfield Encoding:</b> Adjust the driver input sliders (Speed, Throttle, Brake, Steering, Gear, DRS) on the left. Watch how they are packed into raw 8-byte hexadecimal computer data on the right.
+                <br>• <b>CRC-16 Error Checking:</b> If you check the noise injection box, it flips a bit to simulate electrical interference. The validator immediately catches the error and rejects the corrupted packet.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> At 350 km/h, telemetry must be transmitted instantly without lag or corrupted data. This C engine processes frames in under 1 microsecond at 1,000 Hz.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ==============================================================================
 # TAB 7: ⏱️ FULL FIELD STRATEGY & FIA RACE CONTROL FEED
 # ==============================================================================
@@ -649,3 +893,24 @@ with tabs[6]:
             """,
             unsafe_allow_html=True
         )
+
+    # Plain English About Card for Tab 7
+    st.markdown(
+        """
+        <div class="about-card">
+            <h4 style="margin: 0 0 8px 0; color: #38BDF8;">📖 What Does This Dashboard Tell You? (In Simple English)</h4>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>📊 What is this data?</b> Official FIA race control incident messages and top speed trap measurements across the grid.
+            </p>
+            <p style="margin: 0 0 6px 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🔍 What does the dashboard show you?</b>
+                <br>• <b>Race Incident Log:</b> Chronological timeline of race events (Safety Cars, Virtual Safety Cars, yellow flags, DRS activation, and driver penalties).
+                <br>• <b>Speed Trap Leaderboard:</b> Peak top speeds and sector lap benchmarks comparing both drivers across the lap.
+            </p>
+            <p style="margin: 0; font-size: 0.95rem; color: #E2E8F0;">
+                <b>🏁 Why does it matter in a race?</b> Pit-wall strategists monitor race control notices to react instantly to Safety Cars and pit lane windows before rival teams can capitalize.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
