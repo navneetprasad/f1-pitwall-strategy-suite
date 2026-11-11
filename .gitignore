@@ -1,0 +1,29 @@
+# Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# FastF1 Telemetry Cache
+f1_cache/
+.fastf1/
+.fastf1-cache/
+
+# Streamlit Local Runtime
+.streamlit/
+
+# Visual Studio Code & IDEs
+.vscode/
+.idea/
+
+# Operating System Files
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
