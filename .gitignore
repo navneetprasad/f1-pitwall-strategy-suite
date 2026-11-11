@@ -27,3 +27,14 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 *.log
+
+# C Embedded Build Artifacts
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.exe
+build/
+bin/
+
